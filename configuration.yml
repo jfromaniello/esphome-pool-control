@@ -1,0 +1,328 @@
+esphome:
+  name: poolcontrol
+  platform: ESP32
+  board: esp32dev
+  on_boot:
+    priority: 600
+    then:
+      - switch.turn_off: valve1
+      - switch.turn_off: valve2
+      - switch.turn_off: valve3
+      - switch.turn_off: pump
+      - if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_on: valve_fill
+          else:
+            - switch.turn_off: valve_fill
+
+# Enable logging
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "PoolControl Fallback Hotspot"
+    password: !secret fallback_ap_password
+
+api:
+  encryption:
+    key: !secret encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_key
+
+# Display I2C
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+display:
+  - platform: lcd_pcf8574
+    dimensions: 16x2
+    address: 0x27
+    id: lcd_display
+    update_interval: 1.5s # Por defecto es más frecuente
+    lambda: |-
+      if(id(nivel_bajo).state) {
+        it.printf("!NIVEL BAJO!    ");
+        if(id(valve_fill).state) {
+          it.printf(0, 1, "Llenando...     ");
+        } else {
+          it.printf(0, 1, "Bomba Bloqueada  ");
+        }
+      } else if(id(valve1).state) {
+        if(id(valve1_moving)) {
+          it.printf("V1 Abriendo %2.0fs ", 10 - id(valve_timer).state);
+        } else {
+          it.printf("V1 Abierta      ");
+        }
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      } else if(id(valve2).state) {
+        if(id(valve2_moving)) {
+          it.printf("V2 Abriendo %2.0fs ", 10 - id(valve_timer).state);
+        } else {
+          it.printf("V2 Abierta      ");
+        }
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      } else if(id(valve3).state) {
+        if(id(valve3_moving)) {
+          it.printf("V3 Abriendo %2.0fs ", 10 - id(valve_timer).state);
+        } else {
+          it.printf("V3 Abierta      ");
+        }
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      } else {
+        it.printf("Sistema Listo    ");
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      }
+
+# Pulsadores y sensores
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO19
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Nivel Bajo"
+    id: nivel_bajo
+    on_state:
+      then:
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: pump
+            - switch.turn_off: valve1
+            - switch.turn_off: valve2
+            - switch.turn_off: valve3
+            - lambda: |-
+                id(process_cancelled) = true;
+                id(valve1_moving) = false;
+                id(valve2_moving) = false;
+                id(valve3_moving) = false;
+            - switch.turn_on: valve_fill
+          else:
+            - switch.turn_off: valve_fill
+
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Pulsador Válvula 1"
+    id: button1
+    on_press:
+      then:
+        if:
+          condition:
+            switch.is_off: valve1
+          then:
+            - switch.turn_on: valve1
+          else:
+            - switch.turn_off: valve1
+
+  - platform: gpio
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Pulsador Válvula 2"
+    id: button2
+    on_press:
+      then:
+        if:
+          condition:
+            switch.is_off: valve2
+          then:
+            - switch.turn_on: valve2
+          else:
+            - switch.turn_off: valve2
+
+  - platform: gpio
+    pin:
+      number: GPIO15
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Pulsador Válvula 3"
+    id: button3
+    on_press:
+      then:
+        if:
+          condition:
+            switch.is_off: valve3
+          then:
+            - switch.turn_on: valve3
+          else:
+            - switch.turn_off: valve3
+
+# Variables globales
+globals:
+  - id: valve1_moving
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: valve2_moving
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: valve3_moving
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: process_cancelled # Nueva variable para controlar cancelaciones
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+sensor:
+  - platform: template
+    name: "Valve Movement Timer"
+    id: valve_timer
+    update_interval: never
+    accuracy_decimals: 1
+
+# Relés
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO18
+      # Antes estaba así pero cambié a un SSR directo.
+      # inverted: true
+    name: "Bomba de Agua"
+    id: pump
+    internal: true
+
+  - platform: gpio
+    pin:
+      number: GPIO25
+      inverted: true
+    name: "Válvula Llenado"
+    id: valve_fill
+    internal: true
+    on_turn_on:
+      - lambda: 'ESP_LOGD("valve_fill", "Iniciando llenado automático");'
+    on_turn_off:
+      - lambda: 'ESP_LOGD("valve_fill", "Llenado detenido");'
+
+  - platform: gpio
+    pin:
+      number: GPIO26
+      inverted: true
+    name: "Válvula 1"
+    id: valve1
+    on_turn_on:
+      then:
+        # Si el nivel esta bajo cancela inmediatamente
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: valve1
+          else:
+            - switch.turn_off: valve2
+            - switch.turn_off: valve3
+            - switch.turn_off: pump
+            - lambda: |-
+                id(process_cancelled) = false;
+                id(valve1_moving) = true;
+                id(valve_timer).publish_state(0);
+            - while:
+                condition:
+                  and:
+                    - lambda: "return !id(process_cancelled);"
+                    - lambda: "return id(valve_timer).state < 10;"
+                then:
+                  - delay: 200ms
+                  - lambda: "id(valve_timer).publish_state(id(valve_timer).state + 0.2);"
+            - lambda: |-
+                id(valve1_moving) = false;
+                if (!id(process_cancelled)) {
+                  id(pump).turn_on();
+                }
+    on_turn_off:
+      then:
+        - switch.turn_off: pump
+        - lambda: "id(process_cancelled) = true;"
+
+  - platform: gpio
+    pin:
+      number: GPIO27
+      inverted: true
+    name: "Válvula 2"
+    id: valve2
+    on_turn_on:
+      then:
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: valve2
+          else:
+            - switch.turn_off: valve1
+            - switch.turn_off: valve3
+            - switch.turn_off: pump
+            - lambda: |-
+                id(process_cancelled) = false;
+                id(valve2_moving) = true;
+                id(valve_timer).publish_state(0);
+            - while:
+                condition:
+                  and:
+                    - lambda: "return !id(process_cancelled);"
+                    - lambda: "return id(valve_timer).state < 10;"
+                then:
+                  - delay: 200ms
+                  - lambda: "id(valve_timer).publish_state(id(valve_timer).state + 0.2);"
+            - lambda: |-
+                id(valve2_moving) = false;
+                if (!id(process_cancelled)) {
+                  id(pump).turn_on();
+                }
+    on_turn_off:
+      then:
+        - switch.turn_off: pump
+        - lambda: "id(process_cancelled) = true;"
+
+  - platform: gpio
+    pin:
+      number: GPIO13
+      inverted: true
+    name: "Válvula 3"
+    id: valve3
+    on_turn_on:
+      then:
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: valve3
+          else:
+            - switch.turn_off: valve1
+            - switch.turn_off: valve2
+            - switch.turn_off: pump
+            - lambda: |-
+                id(process_cancelled) = false;
+                id(valve3_moving) = true;
+                id(valve_timer).publish_state(0);
+            - while:
+                condition:
+                  and:
+                    - lambda: "return !id(process_cancelled);"
+                    - lambda: "return id(valve_timer).state < 10;"
+                then:
+                  - delay: 200ms
+                  - lambda: "id(valve_timer).publish_state(id(valve_timer).state + 0.2);"
+            - lambda: |-
+                id(valve3_moving) = false;
+                if (!id(process_cancelled)) {
+                  id(pump).turn_on();
+                }
+    on_turn_off:
+      then:
+        - switch.turn_off: pump
+        - lambda: "id(process_cancelled) = true;"
