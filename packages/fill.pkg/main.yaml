@@ -1,0 +1,51 @@
+esphome:
+  on_boot:
+    priority: 600
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_on: valve_fill
+          else:
+            - switch.turn_off: valve_fill
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO19
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Nivel Bajo"
+    id: nivel_bajo
+    on_state:
+      then:
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: pump
+            - switch.turn_off: valve1
+            - switch.turn_off: valve2
+            - switch.turn_off: valve3
+            - lambda: |-
+                id(process_cancelled) = true;
+                id(valve1_moving) = false;
+                id(valve2_moving) = false;
+                id(valve3_moving) = false;
+            - switch.turn_on: valve_fill
+          else:
+            - switch.turn_off: valve_fill
+
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO25
+      inverted: true
+    name: "Válvula Llenado"
+    id: valve_fill
+    internal: true
+    on_turn_on:
+      - lambda: 'ESP_LOGD("valve_fill", "Iniciando llenado automático");'
+    on_turn_off:
+      - lambda: 'ESP_LOGD("valve_fill", "Llenado detenido");'

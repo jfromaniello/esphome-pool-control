@@ -1,0 +1,42 @@
+# Display I2C
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+display:
+  - platform: lcd_pcf8574
+    dimensions: 16x2
+    address: 0x27
+    id: lcd_display
+    update_interval: 1.5s # Por defecto es más frecuente
+    lambda: |-
+      auto show_valve_state = [&](const char* prefix, bool is_moving) {
+        static const char* anim[] = {"Abriendo    ", "Abriendo .  ", "Abriendo .. ", "Abriendo ..."};
+        static int frame = 0;
+        if(is_moving) {
+          frame = (frame + 1) % 4;
+          it.printf("%s %s", prefix, anim[frame]);
+        } else {
+          it.printf("%s Abierta      ", prefix);
+        }
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      };
+
+      if(id(nivel_bajo).state) {
+        it.printf("!NIVEL BAJO!    ");
+        if(id(valve_fill).state) {
+          it.printf(0, 1, "Llenando...     ");
+        } else {
+          it.printf(0, 1, "Bomba Bloqueada  ");
+        }
+      } else if(id(valve1).state) {
+        show_valve_state("V1", id(valve1_moving));
+      } else if(id(valve2).state) {
+        show_valve_state("V2", id(valve2_moving));
+      } else if(id(valve3).state) {
+        show_valve_state("V3", id(valve3_moving));
+      } else {
+        it.printf("Sistema Listo    ");
+        it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
+      }

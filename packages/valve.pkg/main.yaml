@@ -1,0 +1,88 @@
+esphome:
+  on_boot:
+    priority: 600
+    then:
+      - switch.turn_off: ${valve_id}
+
+globals:
+  - id: ${moving_id}
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: ${button_pin_number}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Pulsador Válvula ${valve_number}"
+    id: button_valve_${valve_number}
+    on_press:
+      then:
+        if:
+          condition:
+            switch.is_off: ${valve_id}
+          then:
+            - switch.turn_on: ${valve_id}
+          else:
+            - switch.turn_off: ${valve_id}
+
+switch:
+  - platform: gpio
+    pin:
+      number: ${pin_number}
+      inverted: true
+    name: "Válvula ${valve_number}"
+    id: ${valve_id}
+    on_turn_on:
+      then:
+        if:
+          condition:
+            binary_sensor.is_on: nivel_bajo
+          then:
+            - switch.turn_off: ${valve_id}
+          else:
+            # Apagamos todas las otras válvulas
+            - if:
+                condition:
+                  lambda: 'return "${valve_id}" != "valve1";'
+                then:
+                  - switch.turn_off: valve1
+            - if:
+                condition:
+                  lambda: 'return "${valve_id}" != "valve2";'
+                then:
+                  - switch.turn_off: valve2
+            - if:
+                condition:
+                  lambda: 'return "${valve_id}" != "valve3";'
+                then:
+                  - switch.turn_off: valve3
+            #apagamos la bomba
+            - switch.turn_off: pump
+            #inicializacion de vars
+            - lambda: |-
+                id(process_cancelled) = false;
+                id(${moving_id}) = true;
+                id(valve_timer).publish_state(0);
+            #bucle para esperar la apertura completa de la valvula
+            - while:
+                condition:
+                  and:
+                    - lambda: 'return !id(process_cancelled);'
+                    - lambda: "return id(valve_timer).state < 10;"
+                    - binary_sensor.is_off: nivel_bajo
+                then:
+                    - delay: 200ms
+                    - lambda: "id(valve_timer).publish_state(id(valve_timer).state + 0.2);"
+            #encendido de la bomba
+            - lambda: |-
+                id(${moving_id}) = false;
+                if (!id(process_cancelled) && !id(nivel_bajo).state) {
+                  id(pump).turn_on();
+                }
+    on_turn_off:
+      then:
+        - switch.turn_off: pump
+        - lambda: 'id(process_cancelled) = true;'

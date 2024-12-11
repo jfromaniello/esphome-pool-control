@@ -1,0 +1,13 @@
+esphome:
+  on_boot:
+    priority: 600
+    then:
+      - switch.turn_off: pump
+
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO18
+    name: "Bomba de Agua"
+    id: pump
+    internal: true
