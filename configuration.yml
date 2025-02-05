@@ -37,6 +37,25 @@ sensor:
     update_interval: never
     accuracy_decimals: 1
 
+script:
+  - id: close_valves
+    parameters:
+      exclude_valve: string
+    then:
+      - lambda: |-
+          std::vector<std::pair<std::string, switch_::Switch*>> valves = {
+            {"valve1", id(valve1)},
+            {"valve2", id(valve2)},
+            {"valve3", id(valve3)}
+          };
+
+          for (auto& valve : valves) {
+            if (exclude_valve.empty() || valve.first != exclude_valve) {
+              ESP_LOGD("valve_control", "Cerrando %s%s", valve.first.c_str(), exclude_valve.empty() ? " (cerrando todas las válvulas)" : (" porque la válvula activa es " + exclude_valve).c_str());
+              valve.second->turn_off();
+            }
+          }
+
 packages:
   pump: !include
     file: packages/pump.pkg/main.yaml

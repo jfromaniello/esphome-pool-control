@@ -25,9 +25,11 @@ binary_sensor:
             binary_sensor.is_on: nivel_bajo
           then:
             - switch.turn_off: pump
-            - switch.turn_off: valve1
-            - switch.turn_off: valve2
-            - switch.turn_off: valve3
+
+            - script.execute:
+                id: close_valves
+                exclude_valve: ""
+
             - lambda: |-
                 id(process_cancelled) = true;
                 id(valve1_moving) = false;
