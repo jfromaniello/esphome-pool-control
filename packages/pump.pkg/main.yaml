@@ -4,6 +4,16 @@ esphome:
     then:
       - switch.turn_off: pump
 
+globals:
+  - id: pump_issue_detected
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+substitutions:
+  min_current: "0.2"
+  max_current: "0.6"
+
 switch:
   - platform: gpio
     pin:
@@ -11,3 +21,40 @@ switch:
     name: "Bomba de Agua"
     id: pump
     internal: true
+
+uart:
+  rx_pin: GPIO16
+  tx_pin: GPIO17
+  baud_rate: 9600
+
+modbus:
+
+sensor:
+  - platform: pzemac
+    current:
+      name: "Pump Current"
+      id: pzem_current
+      on_value:
+        then:
+          - lambda: |-
+              float min_val = ${min_current};
+              float max_val = ${max_current};
+              if (id(pump).state && (id(pzem_current).state < min_val || id(pzem_current).state > max_val)) {
+                ESP_LOGW("PZEM", "⚠️ Corriente fuera de rango: %.2fA, apagando bomba!", id(pzem_current).state);
+                id(pump).turn_off();
+                id(close_valves).execute("");
+                id(pump_issue_detected) = true;
+              }
+    voltage:
+      name: "Pump Voltage"
+    energy:
+      name: "Pump Energy"
+    power:
+      name: "Pump Power"
+    frequency:
+      name: "Pump Frequency"
+    power_factor:
+      name: "Pump Power Factor"
+    update_interval: 15s
+
+# I=0.472

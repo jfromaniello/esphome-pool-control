@@ -22,8 +22,10 @@ display:
         }
         it.printf(0, 1, "Bomba: %-9s", id(pump).state ? "ON" : "OFF");
       };
-
-      if(id(nivel_bajo).state) {
+      if (id(pump_issue_detected)) {
+        it.printf("Posible atasco! ");
+        it.printf(0, 1, "REVISAR SISTEMA ");
+      } else if(id(nivel_bajo).state) {
         it.printf("!NIVEL BAJO!    ");
         if(id(valve_fill).state) {
           it.printf(0, 1, "Llenando...     ");
