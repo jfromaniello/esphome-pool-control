@@ -36,6 +36,7 @@ sensor:
     id: valve_timer
     update_interval: never
     accuracy_decimals: 1
+    internal: true
 
 script:
   - id: close_valves

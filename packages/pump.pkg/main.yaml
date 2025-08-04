@@ -11,8 +11,8 @@ globals:
     initial_value: "false"
 
 substitutions:
-  min_current: "0.2"
-  max_current: "0.6"
+  min_current: "3.5"
+  max_current: "4.5"
 
 switch:
   - platform: gpio
@@ -33,28 +33,53 @@ sensor:
   - platform: pzemac
     current:
       name: "Pump Current"
-      id: pzem_current
-      on_value:
-        then:
-          - lambda: |-
-              float min_val = ${min_current};
-              float max_val = ${max_current};
-              if (id(pump).state && (id(pzem_current).state < min_val || id(pzem_current).state > max_val)) {
-                ESP_LOGW("PZEM", "⚠️ Corriente fuera de rango: %.2fA, apagando bomba!", id(pzem_current).state);
-                id(pump).turn_off();
-                id(close_valves).execute("");
-                id(pump_issue_detected) = true;
-              }
     voltage:
       name: "Pump Voltage"
     energy:
       name: "Pump Energy"
     power:
       name: "Pump Power"
+      id: pzem_power
+      on_value:
+        then:
+          - lambda: |-
+              static int out_of_range_count = 0;
+              static uint32_t pump_start_time = 0;
+              float min_val = 810;
+              float max_val = 1050;
+
+              if (id(pump).state) {
+                if (pump_start_time == 0) {
+                  id(pump_issue_detected) = false;
+                  pump_start_time = millis();  // Record pump start time
+                  return;  // Exit early during first detection of pump running
+                }
+
+                // Check if we're still in the startup grace period (20 seconds)
+                if (millis() - pump_start_time < 40000) {
+                  return;  // Exit early during startup period
+                }
+
+                if (id(pzem_power).state < min_val || id(pzem_power).state > max_val) {
+                  out_of_range_count++;
+                  ESP_LOGW("PZEM", "⚠️ Potencia fuera de rango: %.2fW (contador: %d)", id(pzem_power).state, out_of_range_count);
+
+                  if (out_of_range_count >= 3) {
+                    ESP_LOGW("PZEM", "⚠️ Apagando bomba después de 5 lecturas fuera de rango!");
+                    id(pump).turn_off();
+                    id(close_valves).execute("");
+                    id(pump_issue_detected) = true;
+                    out_of_range_count = 0;  // Reset counter
+                  }
+                } else {
+                  out_of_range_count = 0;  // Reset counter when power is within range
+                }
+              } else {
+                pump_start_time = 0;     // Reset start time when pump is off
+              }
     frequency:
       name: "Pump Frequency"
     power_factor:
       name: "Pump Power Factor"
-    update_interval: 15s
-
+    update_interval: 5s
 # I=0.472
